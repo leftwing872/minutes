@@ -1,0 +1,16 @@
+{
+  "name": "minutes",
+  "private": true,
+  "version": "0.1.0",
+  "description": "회의 녹음 → 전사(Amazon Transcribe + Qwen3-ASR) → 미팅노트(Bedrock) 로컬 우선 앱",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "dev": "npm run dev -w @minutes/server & npm run dev -w @minutes/web; wait",
+    "dev:server": "npm run dev -w @minutes/server",
+    "dev:web": "npm run dev -w @minutes/web",
+    "build": "npm run build -w @minutes/shared && npm run build -w @minutes/web && npm run build -w @minutes/server",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "engines": { "node": ">=22" }
+}
