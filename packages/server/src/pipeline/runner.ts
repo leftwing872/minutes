@@ -1,5 +1,5 @@
 import type { MeetingStore, PipelineStarter } from "../store/types.js";
-import { stepStartTranscribe, stepCheckTranscribe, stepRefinePrepare, stepRefineWindow, stepRefineMerge, stepSummarize, markFailed } from "./steps.js";
+import { stepStartTranscribe, stepCheckTranscribe, stepRefinePrepare, stepQwenCheck, stepRefineWindow, stepRefineMerge, stepSummarize, markFailed } from "./steps.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -36,7 +36,9 @@ export class LocalPipelineRunner implements PipelineStarter {
       m = (await this.store.get(id))!;
     }
     if (m.status === "REFINING") {
-      const { windows } = await stepRefinePrepare(this.store, id);
+      let prep = await stepRefinePrepare(this.store, id);
+      while (prep.pending) { await sleep(30000); prep = await stepQwenCheck(this.store, id); }
+      const { windows } = prep;
       if (windows.length) {
         for (const i of windows) await stepRefineWindow(this.store, id, i);
         await stepRefineMerge(this.store, id, windows.length);

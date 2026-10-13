@@ -4,6 +4,9 @@
   "context": {
     "adminEmail": "leftwing871@gmail.com",
     "qwenAsrUrl": "",
+    "qwenEndpointName": "minutes-qwen3-asr",
+    "dataBucketName": "minutes-data666c94c7-ujvbe5hupoty",
+    "qwenInstanceType": "ml.g5.xlarge",
     "bedrockModelId": "us.anthropic.claude-sonnet-4-6",
     "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
     "@aws-cdk/core:checkSecretUsage": true,

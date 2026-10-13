@@ -20,6 +20,9 @@ export const config = {
     maxSpeakers: Number(env("TRANSCRIBE_MAX_SPEAKERS", "6")),
   },
   qwen: {
+    /** off | http(OpenAI 호환 URL) | sagemaker(비동기 엔드포인트) — 미지정 시 URL/엔드포인트 유무로 결정 */
+    mode: (env("QWEN_MODE", "") || (env("QWEN_ENDPOINT_NAME", "") ? "sagemaker" : env("QWEN_ASR_URL", "") ? "http" : "off")) as "off" | "http" | "sagemaker",
+    endpointName: env("QWEN_ENDPOINT_NAME", ""),
     url: env("QWEN_ASR_URL", ""),
     apiKey: env("QWEN_ASR_API_KEY", ""),
     model: env("QWEN_ASR_MODEL", "Qwen/Qwen3-ASR-1.7B"),

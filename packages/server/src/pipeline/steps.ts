@@ -4,7 +4,7 @@ import type { Meeting, Turn, Turns } from "@minutes/shared";
 import type { MeetingStore } from "../store/types.js";
 import { keys, putJson, putText, getJson, headObject, getBytes } from "../aws.js";
 import { startTranscribeJob, isTranscribeJobDone, loadTranscribeTurns } from "./transcribe.js";
-import { qwenEnabled, transcribeWithQwen, type QwenChunk } from "./qwen.js";
+import { qwenEnabled, prepareQwen, checkQwen, type QwenChunk } from "./qwen.js";
 import { refineWindow, windowize } from "./refine.js";
 import { summarize, notePreview } from "./summarize.js";
 import { probe, withTempDir } from "../audio.js";
@@ -55,24 +55,30 @@ export async function stepCheckTranscribe(store: MeetingStore, id: string): Prom
   return { done: true };
 }
 
-/** Qwen3-ASR 2차 전사 + 보정 창 분할. 반환: 창 인덱스 목록 (비활성이면 []) */
-export async function stepRefinePrepare(store: MeetingStore, id: string): Promise<{ windows: number[] }> {
+export type RefinePrep = { pending: boolean; windows: number[] };
+
+/** Qwen3-ASR 2차 전사 시작. http 모드는 즉시 완료, sagemaker 모드는 비동기 큐에 넣고 pending */
+export async function stepRefinePrepare(store: MeetingStore, id: string): Promise<RefinePrep> {
   const m = await must(store, id);
   if (!qwenEnabled()) {
-    log(id, "QWEN_ASR_URL 미설정 — 정밀 전사 건너뜀");
+    log(id, "Qwen 비활성 — 정밀 전사 건너뜀");
     await store.update(id, { status: "SUMMARIZING", statusMessage: null });
-    return { windows: [] };
+    return { pending: false, windows: [] };
   }
-  let qwen = await getJson<QwenChunk[]>(keys.qwen(id));
-  if (!qwen) {
-    log(id, "Qwen3-ASR 정밀 전사");
-    qwen = await transcribeWithQwen(id, audioKey(m));
-    await putJson(keys.qwen(id), qwen);
-  }
+  log(id, "Qwen3-ASR 정밀 전사 요청");
+  const { pending } = await prepareQwen(id, audioKey(m), m.attendees);
+  if (pending) return { pending: true, windows: [] };
+  return stepQwenCheck(store, id);
+}
+
+/** sagemaker 결과 확인. 모두 끝났으면 보정 창 분할까지 수행 */
+export async function stepQwenCheck(store: MeetingStore, id: string): Promise<RefinePrep> {
+  if (!(await checkQwen(id))) return { pending: true, windows: [] };
   const turns = (await getJson<Turns>(keys.turns(id)))!;
   const windows = windowize(turns.raw, 7000);
   await putJson(keys.windows(id), windows);
-  return { windows: windows.map((_, i) => i) };
+  log(id, `Qwen 완료 — 보정 창 ${windows.length}개`);
+  return { pending: false, windows: windows.map((_, i) => i) };
 }
 
 /** 창 하나 보정 → refine/window-i.json */

@@ -11,6 +11,13 @@ export function pickMimeType(): string | null {
 }
 export const recorderSupported = () =>
   typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined" && window.isSecureContext;
+/** 탭/시스템 오디오 캡처 지원 여부 (Chrome/Edge 데스크톱) */
+export const tabAudioSupported = () => typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia;
+
+export type StartOptions = Pick<RecordingSession, "title" | "attendees" | "teamIds"> & {
+  /** 마이크와 함께 공유한 탭/화면의 소리(유튜브, 화상회의 등)를 녹음에 섞는다 */
+  includeTabAudio?: boolean;
+};
 
 /**
  * MediaRecorder 래퍼. chunk 는 IndexedDB 에 즉시 저장되므로 메모리에 누적하지 않는다.
@@ -24,6 +31,9 @@ export function useRecorder() {
 
   const rec = useRef<MediaRecorder | null>(null);
   const stream = useRef<MediaStream | null>(null);
+  const displayStream = useRef<MediaStream | null>(null);
+  const audioCtx = useRef<AudioContext | null>(null);
+  const [tabAudioActive, setTabAudioActive] = useState(false);
   const seq = useRef(0);
   const activeSince = useRef<number | null>(null); // 현재 녹음 구간 시작 (perf.now)
   const accumulated = useRef(0); // 이전 구간 누적 ms
@@ -49,10 +59,48 @@ export function useRecorder() {
 
   const cleanup = () => {
     stream.current?.getTracks().forEach((t) => t.stop());
-    stream.current = null; rec.current = null;
+    displayStream.current?.getTracks().forEach((t) => t.stop());
+    audioCtx.current?.close().catch(() => {});
+    stream.current = null; displayStream.current = null; audioCtx.current = null; rec.current = null;
+    setTabAudioActive(false);
   };
 
-  const start = useCallback(async (meta: Pick<RecordingSession, "title" | "attendees" | "teamIds">) => {
+  /** 탭/화면 오디오 스트림 획득. 사용자가 취소하면 null (마이크만 녹음) */
+  const acquireTabAudio = async (): Promise<MediaStream | null> => {
+    if (!tabAudioSupported()) return null;
+    try {
+      const ds = await navigator.mediaDevices.getDisplayMedia({
+        video: true, // Chrome 은 video 없이 audio 만 요청할 수 없다. 트랙은 바로 정지한다.
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        // @ts-expect-error 비표준 힌트: 시스템 오디오 포함, 현재 탭 제외 안 함
+        systemAudio: "include", selfBrowserSurface: "include", surfaceSwitching: "include",
+      });
+      ds.getVideoTracks().forEach((t) => t.stop());
+      if (!ds.getAudioTracks().length) {
+        ds.getTracks().forEach((t) => t.stop());
+        setError("공유한 화면/탭에 오디오가 없습니다. 공유 창에서 \"탭 오디오 공유\"(또는 시스템 오디오)를 켜 주세요. 마이크만 녹음합니다.");
+        return null;
+      }
+      return ds;
+    } catch (e: any) {
+      if (e?.name !== "NotAllowedError") setError(`화면 오디오를 가져오지 못했습니다. 마이크만 녹음합니다. ${e?.message ?? ""}`);
+      return null;
+    }
+  };
+
+  /** 마이크 + 탭 오디오를 하나의 스트림으로 믹싱 */
+  const mix = (mic: MediaStream, tab: MediaStream): MediaStream => {
+    const ctx = new AudioContext();
+    audioCtx.current = ctx;
+    const dest = ctx.createMediaStreamDestination();
+    ctx.createMediaStreamSource(mic).connect(dest);
+    ctx.createMediaStreamSource(tab).connect(dest);
+    // 사용자가 공유를 중단하면 마이크만으로 계속 녹음
+    tab.getAudioTracks()[0]?.addEventListener("ended", () => setTabAudioActive(false));
+    return dest.stream;
+  };
+
+  const start = useCallback(async ({ includeTabAudio, ...meta }: StartOptions) => {
     setError(null);
     if (!recorderSupported()) { setError("이 브라우저는 녹음을 지원하지 않습니다."); return null; }
     const mimeType = pickMimeType();
@@ -66,6 +114,11 @@ export function useRecorder() {
         : e?.name === "NotFoundError" ? "사용할 수 있는 마이크를 찾을 수 없습니다." : `녹음 중 오류가 발생했습니다. ${e?.message ?? ""}`);
       return null;
     }
+    let recStream: MediaStream = stream.current!;
+    if (includeTabAudio) {
+      const tab = await acquireTabAudio();
+      if (tab) { displayStream.current = tab; recStream = mix(stream.current!, tab); setTabAudioActive(true); }
+    }
     const s: RecordingSession = {
       sessionId: crypto.randomUUID(), startedAtUtc: new Date().toISOString(),
       mimeType: mimeType || "audio/webm", state: "recording", durationSec: 0, durationEstimated: false,
@@ -75,7 +128,7 @@ export function useRecorder() {
     sessionRef.current = s; setSession(s);
     seq.current = 0; accumulated.current = 0; activeSince.current = performance.now(); setElapsedSec(0);
 
-    const mr = new MediaRecorder(stream.current!, mimeType ? { mimeType, audioBitsPerSecond: 64_000 } : undefined);
+    const mr = new MediaRecorder(recStream, mimeType ? { mimeType, audioBitsPerSecond: 64_000 } : undefined);
     rec.current = mr;
     mr.ondataavailable = (ev) => {
       if (ev.data && ev.data.size > 0) recordings.addChunk(s.sessionId, seq.current++, ev.data).catch((e) => setError(`저장 실패: ${e.message}`));
@@ -119,5 +172,5 @@ export function useRecorder() {
   }, []);
 
   useEffect(() => () => cleanup(), []);
-  return { status, elapsedSec, error, session, start, pause, resume, stop };
+  return { status, elapsedSec, error, session, start, pause, resume, stop, tabAudioActive };
 }

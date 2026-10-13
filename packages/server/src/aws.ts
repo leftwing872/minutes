@@ -16,6 +16,8 @@ export const keys = {
   transcribeOut: (meetingId: string) => `meetings/${meetingId}/transcribe.json`,
   turns: (meetingId: string) => `meetings/${meetingId}/turns.json`,
   qwen: (meetingId: string) => `meetings/${meetingId}/qwen.json`,
+  qwenJobs: (meetingId: string) => `meetings/${meetingId}/qwen/jobs.json`,
+  qwenIn: (meetingId: string, i: number) => `meetings/${meetingId}/qwen/in/chunk-${String(i).padStart(4, "0")}.wav`,
   note: (meetingId: string) => `meetings/${meetingId}/note.md`,
   windows: (meetingId: string) => `meetings/${meetingId}/refine/windows.json`,
   refineWindow: (meetingId: string, i: number) => `meetings/${meetingId}/refine/window-${String(i).padStart(4, "0")}.json`,
@@ -57,6 +59,10 @@ export async function headObject(key: string) {
 }
 
 export async function putText(key: string, body: string, contentType = "text/plain; charset=utf-8") {
+  await s3.send(new PutObjectCommand({ Bucket: config.bucket, Key: key, Body: body, ContentType: contentType }));
+}
+
+export async function putBytes(key: string, body: Uint8Array, contentType: string) {
   await s3.send(new PutObjectCommand({ Bucket: config.bucket, Key: key, Body: body, ContentType: contentType }));
 }
 

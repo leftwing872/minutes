@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Team } from "@minutes/shared";
 import { api, uploadToS3 } from "../lib/api";
-import { useRecorder, recorderSupported } from "../lib/useRecorder";
+import { useRecorder, recorderSupported, tabAudioSupported } from "../lib/useRecorder";
 import { recordings, recordingFilename, type RecordingSession } from "../lib/recordings";
 import { readFileMeta } from "../lib/audioMeta";
 import { fmtClock, localInputToIso, isoToLocalInput } from "../lib/time";
@@ -28,6 +28,8 @@ export function Capture(p: Props) {
   const [teamIds, setTeamIds] = useState<string[]>(p.defaultTeamIds);
   const [metaHint, setMetaHint] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const [includeTab, setIncludeTab] = useState(() => localStorage.getItem("minutes.includeTabAudio") === "1");
+  const toggleTab = (v: boolean) => { setIncludeTab(v); localStorage.setItem("minutes.includeTabAudio", v ? "1" : "0"); };
 
   useEffect(() => { p.onRecordingChange(rec.session?.sessionId); }, [rec.session?.sessionId]);
   useEffect(() => { if (rec.error) p.onError(rec.error); }, [rec.error]);
@@ -41,7 +43,7 @@ export function Capture(p: Props) {
   const live = rec.status === "recording" || rec.status === "paused";
 
   async function startRecording() {
-    await rec.start({ title: "", attendees: [], teamIds: p.defaultTeamIds });
+    await rec.start({ title: "", attendees: [], teamIds: p.defaultTeamIds, includeTabAudio: includeTab && tabAudioSupported() });
     p.onPendingChange();
   }
 
@@ -132,6 +134,7 @@ export function Capture(p: Props) {
           <div className="rec-live">
             <span className={`rec-dot ${rec.status === "recording" ? "on" : ""}`} aria-hidden="true" />
             <span className="rec-time">{fmtClock(rec.elapsedSec)}</span>
+            {rec.tabAudioActive && <span className="hint" title="공유한 탭/화면의 소리를 마이크와 함께 녹음 중">🔊 화면 소리 포함</span>}
             {rec.status === "recording"
               ? <button className="ghost small" onClick={rec.pause}>일시정지</button>
               : <button className="ghost small" onClick={rec.resume}>계속</button>}
@@ -143,6 +146,11 @@ export function Capture(p: Props) {
             {recorderSupported()
               ? <button className="primary" onClick={startRecording} disabled={rec.status === "starting"}>● 녹음 시작</button>
               : <span className="hint" title="HTTPS와 MediaRecorder 지원이 필요합니다">이 브라우저에서는 녹음을 쓸 수 없습니다</span>}
+            {recorderSupported() && tabAudioSupported() && (
+              <label className="hint tab-audio" title="유튜브·화상회의 등 브라우저 탭이나 화면의 소리를 마이크와 함께 녹음합니다. 녹음 시작 시 공유할 탭/화면을 고르고 '오디오 공유'를 켜 주세요.">
+                <input type="checkbox" checked={includeTab} onChange={(e) => toggleTab(e.target.checked)} /> 화면 소리 포함
+              </label>
+            )}
             <button onClick={() => fileInput.current?.click()}>파일 업로드</button>
             <span className="hint">끌어다 놓기도 됩니다</span>
             <input ref={fileInput} type="file" hidden accept="audio/*,video/mp4,.m4a,.mp3,.wav,.mp4,.webm,.ogg,.flac"

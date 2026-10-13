@@ -1,5 +1,5 @@
 import { DynamoMeetingStore } from "../store/dynamo.js";
-import { stepStartTranscribe, stepCheckTranscribe, stepRefinePrepare, stepRefineWindow, stepRefineMerge, stepSummarize, markFailed } from "../pipeline/steps.js";
+import { stepStartTranscribe, stepCheckTranscribe, stepRefinePrepare, stepQwenCheck, stepRefineWindow, stepRefineMerge, stepSummarize, markFailed } from "../pipeline/steps.js";
 
 const store = new DynamoMeetingStore();
 
@@ -7,6 +7,7 @@ type Event =
   | { step: "startTranscribe"; meetingId: string }
   | { step: "checkTranscribe"; meetingId: string }
   | { step: "refinePrepare"; meetingId: string }
+  | { step: "qwenCheck"; meetingId: string }
   | { step: "refineWindow"; meetingId: string; index: number }
   | { step: "refineMerge"; meetingId: string; count: number }
   | { step: "summarize"; meetingId: string }
@@ -18,6 +19,7 @@ export async function handler(e: Event) {
     case "startTranscribe": return stepStartTranscribe(store, e.meetingId);
     case "checkTranscribe": return stepCheckTranscribe(store, e.meetingId);
     case "refinePrepare": return stepRefinePrepare(store, e.meetingId);
+    case "qwenCheck": return stepQwenCheck(store, e.meetingId);
     case "refineWindow": return stepRefineWindow(store, e.meetingId, e.index);
     case "refineMerge": return stepRefineMerge(store, e.meetingId, e.count);
     case "summarize": return stepSummarize(store, e.meetingId);

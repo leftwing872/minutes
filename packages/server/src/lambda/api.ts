@@ -11,7 +11,7 @@ const app = new Hono();
 app.route("/api", buildApi({
   meetings: new DynamoMeetingStore(), teams, users: new CognitoUserDirectory(teams),
   pipeline: new SfnPipelineStarter(process.env.STATE_MACHINE_ARN!),
-  auth: cognitoAuth(teams), qwenEnabled: Boolean(process.env.QWEN_ASR_URL),
+  auth: cognitoAuth(teams), qwenEnabled: Boolean(process.env.QWEN_ENDPOINT_NAME || process.env.QWEN_ASR_URL),
 }));
 app.onError((e, c) => { console.error(e); return c.json({ error: e.message }, 500); });
 

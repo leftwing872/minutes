@@ -27,6 +27,8 @@ const ffmpegLayerDir = path.resolve(here, "../layers/ffmpeg");
 export interface MinutesStackProps extends StackProps {
   adminEmail: string;
   qwenAsrUrl: string;
+  /** SageMaker 비동기 엔드포인트 이름 (MinutesQwen 스택). 비면 정밀 전사 생략 */
+  qwenEndpointName: string;
   bedrockModelId: string;
 }
 
@@ -92,6 +94,8 @@ export class MinutesStack extends Stack {
       USER_POOL_ID: pool.userPoolId,
       BEDROCK_MODEL_ID: props.bedrockModelId,
       QWEN_ASR_URL: props.qwenAsrUrl,
+      QWEN_ENDPOINT_NAME: props.qwenEndpointName,
+      QWEN_MODE: props.qwenEndpointName ? "sagemaker" : props.qwenAsrUrl ? "http" : "off",
       TRANSCRIBE_LANGUAGE: "ko-KR",
       NODE_OPTIONS: "--enable-source-maps",
     };
@@ -124,6 +128,12 @@ export class MinutesStack extends Stack {
     table.grantReadWriteData(pipelineFn);
     pipelineFn.addToRolePolicy(bedrockPolicy);
     pipelineFn.addToRolePolicy(transcribePolicy);
+    if (props.qwenEndpointName) {
+      pipelineFn.addToRolePolicy(new iam.PolicyStatement({
+        actions: ["sagemaker:InvokeEndpointAsync"],
+        resources: [`arn:aws:sagemaker:${this.region}:${this.account}:endpoint/${props.qwenEndpointName}`],
+      }));
+    }
 
     const invoke = (id: string, step: string, extraPayload: Record<string, unknown> = {}, resultPath: string = sfn.JsonPath.DISCARD) =>
       new tasks.LambdaInvoke(this, id, {
@@ -138,6 +148,8 @@ export class MinutesStack extends Stack {
     const waitTranscribe = new sfn.Wait(this, "WaitTranscribe", { time: sfn.WaitTime.duration(Duration.seconds(20)) });
     const checkTranscribe = invoke("CheckTranscribe", "checkTranscribe", {}, "$.check");
     const refinePrepare = invoke("RefinePrepare", "refinePrepare", {}, "$.prep");
+    const waitQwen = new sfn.Wait(this, "WaitQwen", { time: sfn.WaitTime.duration(Duration.seconds(60)) });
+    const qwenCheck = invoke("QwenCheck", "qwenCheck", {}, "$.prep");
     const refineWindow = invoke("RefineWindow", "refineWindow", { index: sfn.JsonPath.numberAt("$.index") });
     refineWindow.addRetry({ errors: ["States.TaskFailed"], maxAttempts: 2, interval: Duration.seconds(15), backoffRate: 2 });
     const refineMap = new sfn.Map(this, "RefineWindows", {
@@ -148,12 +160,20 @@ export class MinutesStack extends Stack {
     const summarize = invoke("Summarize", "summarize");
     summarize.addRetry({ errors: ["States.TaskFailed"], maxAttempts: 2, interval: Duration.seconds(20), backoffRate: 2 });
 
+    const hasWindows = new sfn.Choice(this, "HasWindows?")
+      .when(sfn.Condition.isPresent("$.prep.windows[0]"), refineMap.next(refineMerge).next(summarize))
+      .otherwise(summarize);
+    // Qwen 비동기 결과 대기 루프 (콜드스타트 포함 최대 수십 분)
+    const qwenPending = new sfn.Choice(this, "QwenPending?")
+      .when(sfn.Condition.booleanEquals("$.prep.pending", true), waitQwen.next(qwenCheck).next(
+        new sfn.Choice(this, "QwenDone?")
+          .when(sfn.Condition.booleanEquals("$.prep.pending", true), waitQwen)
+          .otherwise(hasWindows)))
+      .otherwise(hasWindows);
+
     const transcribeLoop = startTranscribe.next(waitTranscribe).next(checkTranscribe).next(
       new sfn.Choice(this, "TranscribeDone?")
-        .when(sfn.Condition.booleanEquals("$.check.done", true), refinePrepare.next(
-          new sfn.Choice(this, "HasWindows?")
-            .when(sfn.Condition.isPresent("$.prep.windows[0]"), refineMap.next(refineMerge).next(summarize))
-            .otherwise(summarize)))
+        .when(sfn.Condition.booleanEquals("$.check.done", true), refinePrepare.next(qwenPending))
         .otherwise(waitTranscribe));
 
     const body = new sfn.Parallel(this, "Pipeline", { resultPath: sfn.JsonPath.DISCARD }).branch(

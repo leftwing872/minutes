@@ -1,7 +1,6 @@
 # 미팅 노트 (minutes)
 
 회의를 브라우저에서 녹음하거나 파일을 올리면 **Amazon Transcribe(화자 분리) → Qwen3-ASR(정밀 전사) → Bedrock(두 전사문 대조 보정 + 미팅노트)** 파이프라인을 거쳐 전사문과 마크다운 노트를 만들어 주는 앱입니다.
-동료의 `meeting-stt` 앱(https://dmqgj73ksxydv.cloudfront.net/)을 레퍼런스로 UI/흐름을 재구현했습니다. 레퍼런스 분석은 `docs/reference-ui-spec.md` 참고.
 
 ## 구조
 
@@ -9,7 +8,7 @@
 packages/
   shared/   타입·zod 스키마 (Meeting, Turn, 상태 enum, API 요청/응답)
   server/   Hono(Node) API + 인프로세스 파이프라인 러너 + SQLite(better-sqlite3)
-  web/      React + Vite SPA (레퍼런스 CSS 그대로 사용)
+  web/      React + Vite SPA
 ```
 
 - **저장소**: 메타데이터는 로컬 SQLite(`packages/server/data/`), 오디오·전사·노트는 S3 (`meetings/{id}/…`). Transcribe가 S3 입력을 요구하므로 로컬에서도 S3를 쓴다.
@@ -183,11 +182,11 @@ vLLM 등으로 `/v1/audio/transcriptions` 를 서빙하면 로컬 러너가 동�
 | `npm run typecheck` | 전체 타입 체크 |
 | `npm run build` | 웹 빌드(`packages/web/dist`) + 서버 빌드. 빌드된 웹이 있으면 서버가 같은 포트에서 정적 서빙 |
 
-## 레퍼런스 앱과의 차이
+## 기능 메모
 
-- 노트 편집기: BlockNote 대신 마크다운 textarea + 실시간 미리보기.
+- 노트 편집기: 마크다운 textarea + 실시간 미리보기.
 - `timeSource` 값: `file`(파일 메타) / `recorder` / `manual` / `upload`.
-- 공유 범위: `teamIds: []` 가 "나만 보기" (레퍼런스는 `personal-*` 접두 팀).
+- 공유 범위: `teamIds: []` 가 "나만 보기".
 - 추가 기능: 실패한 회의 `다시 처리`, `녹음 듣기`(presigned GET), 업로드 폼에서 공유 범위 선택.
 - 로컬 모드에서 비밀번호 변경/로그아웃은 동작하지 않음(UI만 유지).
 

@@ -23,7 +23,7 @@ app.use("*", logger());
 app.use("/api/*", cors({ origin: config.webOrigin }));
 app.route("/api", buildApi({
   meetings, teams: new SqliteTeamStore(db), users: new SqliteUserDirectory(db), pipeline: runner,
-  auth: devAuth(db), qwenEnabled: Boolean(config.qwen.url),
+  auth: devAuth(db), qwenEnabled: config.qwen.mode !== "off",
 }));
 app.onError((e, c) => { console.error(e); return c.json({ error: e.message }, 500); });
 
