@@ -12,7 +12,10 @@ const md = new Marked({
   },
 });
 
+/** 마크다운 → HTML 문자열 (화면 렌더와 인쇄/내보내기가 공유) */
+export const renderMarkdown = (source: string) => md.parse(source, { async: false }) as string;
+
 export function Markdown({ source }: { source: string }) {
-  const html = useMemo(() => md.parse(source, { async: false }) as string, [source]);
+  const html = useMemo(() => renderMarkdown(source), [source]);
   return <div className="md" dangerouslySetInnerHTML={{ __html: html }} />;
 }

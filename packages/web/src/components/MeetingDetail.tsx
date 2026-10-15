@@ -7,6 +7,7 @@ import { Badge } from "./Badge";
 import { Pipeline } from "./Pipeline";
 import { Chat } from "./Chat";
 import { Markdown } from "./Markdown";
+import { downloadText, exportFilename, noteMarkdown, printNote, transcriptText } from "../lib/export";
 
 const TIME_SOURCE: Record<TimeSource, [string, string]> = {
   file: ["파일 메타데이터 기준", "녹음 파일 내부 메타데이터에서 읽은 실제 녹음 시각"],
@@ -77,6 +78,11 @@ export const MeetingDetail = memo(function MeetingDetail({ meeting: m, session, 
   const copy = () => {
     const text = tab === "note" ? note ?? "" : (turns?.refined ?? turns?.raw ?? []).map((t) => `${speakerMap[t.speaker] ?? t.speaker}: ${t.text}`).join("\n");
     navigator.clipboard.writeText(text);
+  };
+  const exportable = m.status === "DONE" && !editing && (tab === "note" ? !!note : !!turns);
+  const download = () => {
+    if (tab === "note") downloadText(exportFilename(m, "md"), noteMarkdown(m, note ?? ""), "text/markdown");
+    else downloadText(exportFilename(m, "txt"), transcriptText(m, turns?.refined ?? turns?.raw ?? []), "text/plain");
   };
   const saveNote = () => { setSaving(true); api.saveNote(m.meetingId, draft).then(() => { setNote(draft); setEditing(false); onChanged(); }).catch((e) => setError(e.message)).finally(() => setSaving(false)); };
   const cancelNote = () => { if (draft === note || confirm("수정한 내용을 버릴까요?")) setEditing(false); };
@@ -157,6 +163,8 @@ export const MeetingDetail = memo(function MeetingDetail({ meeting: m, session, 
         <button className={`ghost small ${tab === "note" ? "on" : ""}`} onClick={() => setTab("note")}>미팅노트</button>
         <button className={`ghost small ${tab === "transcript" ? "on" : ""}`} onClick={() => setTab("transcript")}>전사문</button>
         <button className="ghost small" title="전문을 클립보드로 복사" disabled={tab === "note" ? note === undefined : turns === undefined} onClick={copy}>복사</button>
+        <button className="ghost small" title={tab === "note" ? "미팅노트를 마크다운(.md) 파일로 저장" : "전사문을 텍스트(.txt) 파일로 저장"} disabled={!exportable} onClick={download}>{tab === "note" ? "MD 저장" : "TXT 저장"}</button>
+        {tab === "note" && <button className="ghost small" title="인쇄 대화상자에서 'PDF로 저장'을 선택하세요" disabled={!exportable} onClick={() => printNote(m, note ?? "")}>PDF 저장</button>}
         {m.status === "DONE" && <button className="ghost small" onClick={() => audioUrl ? setAudioUrl(null) : loadAudio()}>{audioUrl ? "녹음 닫기" : "녹음 듣기"}</button>}
         <span className="spacer" />
         {canEdit && tab === "note" && note !== undefined && !editing && m.status === "DONE" && <button className="ghost small" onClick={() => { setDraft(note); setEditing(true); }}>노트 수정</button>}
