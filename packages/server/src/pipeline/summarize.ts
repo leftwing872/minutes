@@ -6,8 +6,11 @@ export type Summary = { title: string | null; note: string; speakers: Record<str
 /** 보정된 전사문 → 미팅노트(markdown) + 제목(없을 때) + 화자 이름 추정 */
 export async function summarize(
   turns: Turn[],
-  opts: { title: string; attendees: string[]; startLocal: string; durationLabel: string },
+  opts: { title: string; attendees: string[]; startLocal: string; durationLabel: string; speakers?: Record<string, string> },
 ): Promise<Summary> {
+  // 사용자가 확정한 화자 이름 (spk_0 → "김철수"). 이름이 있는 화자는 추정하지 않고 그대로 쓴다.
+  const known = Object.fromEntries(Object.entries(opts.speakers ?? {}).filter(([, v]) => v.trim()));
+  const label = (spk: string) => known[spk] ?? spk;
   const system = `당신은 회의록 작성 전문가입니다. 전사문을 읽고 한국어 미팅노트를 작성합니다.
 출력 형식(태그 밖에는 아무것도 쓰지 않습니다):
 <title>회의 제목 (제목이 이미 주어졌으면 그대로)</title>
@@ -36,12 +39,15 @@ export async function summarize(
 
 규칙:
 - 전사문에 있는 내용만 쓰고, 없는 내용을 추측해 넣지 않습니다. 해당 없는 섹션은 "- 없음"으로 둡니다.
-- 화자 이름은 전사문에서 자기소개·호칭·참석자 목록을 근거로 추정하고, 근거가 없으면 "화자 1", "화자 2"처럼 둡니다.
+- 전사문에 실명/역할로 표기된 화자는 사용자가 확정한 이름이므로 노트와 <speakers>에 그대로 사용합니다. 바꾸거나 다시 추정하지 않습니다.
+- "spk_N" 으로 남아 있는 화자만 자기소개·호칭·참석자 목록을 근거로 이름을 추정하고, 근거가 없으면 "화자 1", "화자 2"처럼 둡니다.
 - 숫자·날짜·고유명사는 원문을 유지합니다. 간결하되 결정과 액션은 빠짐없이 적습니다.`;
-  const body = turns.map((t) => `[${ms(t.startMs)}] ${t.speaker}: ${t.text}`).join("\n");
+  const body = turns.map((t) => `[${ms(t.startMs)}] ${label(t.speaker)}: ${t.text}`).join("\n");
+  const knownLine = Object.entries(known).map(([k, v]) => `${k} = ${v}`).join(", ");
   const user = `회의 제목: ${opts.title || "(없음 — 내용으로 생성)"}
 회의 일시: ${opts.startLocal} (${opts.durationLabel})
 참석자: ${opts.attendees.join(", ") || "(미입력)"}
+확정된 화자 이름: ${knownLine || "(없음)"}
 
 ## 전사문
 ${body}`;
@@ -50,7 +56,7 @@ ${body}`;
   const note = tag(text, "note") ?? text.trim();
   let speakers: Record<string, string> = {};
   try { speakers = JSON.parse(tag(text, "speakers") ?? "{}"); } catch { /* ignore */ }
-  return { title: title && title !== opts.title ? title : null, note, speakers };
+  return { title: title && title !== opts.title ? title : null, note, speakers: { ...speakers, ...known } };
 }
 
 function tag(text: string, name: string): string | null {

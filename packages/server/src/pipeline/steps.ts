@@ -112,12 +112,12 @@ export async function stepSummarize(store: MeetingStore, id: string) {
   const src: Turn[] = turns.refined ?? turns.raw;
   log(id, "미팅노트 작성");
   const r = await summarize(src, {
-    title: m.title, attendees: m.attendees,
+    title: m.title, attendees: m.attendees, speakers: m.speakers,
     startLocal: new Intl.DateTimeFormat("ko-KR", { dateStyle: "full", timeStyle: "short", timeZone: "Asia/Seoul" }).format(new Date(m.startUtc)),
     durationLabel: m.durationSec ? `${Math.round(m.durationSec / 60)}분` : "길이 미상",
   });
   await putText(keys.note(id), r.note, "text/markdown; charset=utf-8");
-  const speakers = Object.keys(m.speakers).length ? m.speakers : r.speakers;
+  const speakers = { ...r.speakers, ...m.speakers }; // 사용자가 지정한 이름이 우선, 나머지는 모델 추정
   await store.update(id, {
     ...(r.title && !m.title ? { title: r.title } : {}),
     notePreview: notePreview(r.note), noteEditedAt: null, speakers, status: "DONE", statusMessage: null,
