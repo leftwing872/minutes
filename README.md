@@ -163,6 +163,8 @@ S3 버킷 CORS에 브라우저 origin(`http://localhost:5173`)의 `PUT` 허용�
 **(배포) SageMaker 비동기 엔드포인트 — `packages/qwen-asr` + `MinutesQwen` 스택**
 `pytorch/pytorch` 베이스에 `qwen-asr` 와 모델 가중치(`Qwen/Qwen3-ASR-1.7B`)를 넣은 컨테이너를 `ml.g5.xlarge` 비동기 엔드포인트로 올린다. 요청이 없으면 **0대로 축소**되고 큐에 요청이 쌓이면 1대 기동(콜드스타트 5~10분). 파이프라인은 오디오를 조각내 S3에 올리고 `InvokeEndpointAsync` 로 큐에 넣은 뒤 Step Functions 가 1분 간격으로 결과를 확인한다. 참석자 이름은 `CustomAttributes` 의 `context` 로 전달해 고유명사 인식에 활용한다.
 
+주의: SageMaker `ml.g5` 호스트의 NVIDIA 드라이버는 CUDA 11.4 까지만 지원하므로 베이스 이미지는 **cu118 빌드**(`pytorch/pytorch:2.6.0-cuda11.8-cudnn9-runtime`)를 써야 한다. cu12 빌드는 "driver too old" 로 GPU 초기화에 실패해 CPU 로 떨어지고(240초 조각당 ~8분), Dockerfile 이 빌드 시점에 이를 검사한다. 컨테이너가 추론을 직렬화하므로 `maxConcurrentInvocationsPerInstance` 는 1 이고, 실패한 조각은 `checkQwen` 이 최대 3회 다시 큐에 넣는다.
+
 ```bash
 # 메인 스택 배포 후 (dataBucketName 출력값을 cdk.json 컨텍스트에 기록)
 cd packages/infra && npx cdk deploy MinutesQwen   # 이미지 빌드/푸시 포함, 수십 분

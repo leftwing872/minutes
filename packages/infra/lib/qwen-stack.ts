@@ -58,7 +58,7 @@ export class QwenStack extends Stack {
       }],
       asyncInferenceConfig: {
         outputConfig: { s3OutputPath: `s3://${props.dataBucketName}/qwen-async/out/`, s3FailurePath: `s3://${props.dataBucketName}/qwen-async/fail/` },
-        clientConfig: { maxConcurrentInvocationsPerInstance: 2 },
+        clientConfig: { maxConcurrentInvocationsPerInstance: 1 }, // 컨테이너가 추론을 직렬화하므로 2 이상이면 두 번째 요청이 타임아웃으로 실패
       },
     });
     const endpoint = new sagemaker.CfnEndpoint(this, "Endpoint", { endpointName: props.endpointName, endpointConfigName: endpointConfig.attrEndpointConfigName });

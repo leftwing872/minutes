@@ -5,11 +5,14 @@ from urllib.parse import parse_qs
 
 import torch
 from fastapi import FastAPI, Request, Response
-
+from starlette.concurrency import run_in_threadpool
 log = logging.getLogger("qwen-asr")
 logging.basicConfig(level=logging.INFO)
 MODEL_ID = os.environ.get("MODEL_ID", "Qwen/Qwen3-ASR-1.7B")
 DEVICE = os.environ.get("QWEN_DEVICE", "cuda:0" if torch.cuda.is_available() else "cpu")
+if not DEVICE.startswith("cuda"):
+    # GPU 인스턴스인데 여기로 오면 드라이버/CUDA 빌드 불일치다 (CPU 는 240초 조각당 ~8분 소요)
+    log.warning("CUDA not available (torch %s, cuda build %s) — running on %s", torch.__version__, torch.version.cuda, DEVICE)
 
 app = FastAPI()
 _model = None
@@ -55,13 +58,19 @@ def _as_text(result):
 
 @app.post("/invocations")
 async def invocations(request: Request):
+    """본문만 비동기로 읽고, 수십 초~수 분 걸리는 추론은 스레드풀에서 돌린다.
+    (이벤트 루프 안에서 락을 잡고 추론하면 /ping 이 막혀 SageMaker 가 컨테이너를 교체한다)"""
     if _model is None:
         return Response(status_code=503, content=json.dumps({"error": _err or "model loading"}), media_type="application/json")
     body = await request.body()
-    attrs = parse_qs(request.headers.get("x-amzn-sagemaker-custom-attributes", ""))
+    return await run_in_threadpool(_invoke, body, request.headers)
+
+
+def _invoke(body: bytes, headers) -> Response:
+    attrs = parse_qs(headers.get("x-amzn-sagemaker-custom-attributes", ""))
     context = (attrs.get("context") or [""])[0]
     language = (attrs.get("language") or [None])[0]
-    ctype = request.headers.get("content-type", "audio/wav")
+    ctype = headers.get("content-type", "audio/wav")
     suffix = ".wav" if "wav" in ctype else ".m4a" if "mp4" in ctype else ".webm" if "webm" in ctype else ".bin"
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
         f.write(body)

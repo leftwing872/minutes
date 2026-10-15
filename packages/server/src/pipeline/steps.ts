@@ -73,7 +73,8 @@ export async function stepRefinePrepare(store: MeetingStore, id: string): Promis
 
 /** sagemaker 결과 확인. 모두 끝났으면 보정 창 분할까지 수행 */
 export async function stepQwenCheck(store: MeetingStore, id: string): Promise<RefinePrep> {
-  if (!(await checkQwen(id))) return { pending: true, windows: [] };
+  const m = await must(store, id);
+  if (!(await checkQwen(id, m.attendees))) return { pending: true, windows: [] };
   const turns = (await getJson<Turns>(keys.turns(id)))!;
   const windows = windowize(turns.raw, 7000);
   await putJson(keys.windows(id), windows);
